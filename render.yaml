@@ -1,0 +1,10 @@
+services:
+  - type: web
+    name: tank-maze-online-playtest
+    runtime: node
+    plan: free
+    region: frankfurt
+    buildCommand: npm install
+    startCommand: npm start
+    healthCheckPath: /
+    numInstances: 1
