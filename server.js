@@ -128,7 +128,10 @@ function tick(dt){
 }
 function randomPickupType(){const roll=Math.random();return roll<.28?'repair':roll<.48?'armor':roll<.68?'boost':roll<.84?'double':'illusion';}
 function damage(t,amount){if(!t.alive)return;const taken=t.armor>0?amount*.5:amount;t.hp-=taken;if(t.hp<=0){t.lives--;t.alive=false;t.respawn=10;t.hp=t.loadout==='guard'?125:100;t.ammo=t.maxAmmo;t.reload=0;if(Math.random()<.62)game.pickups.push({x:t.x,y:t.y,type:randomPickupType(),life:18});if(t.lives<=0)endMatch(1-t.id);}}
-setInterval(()=>{tick(1/30);if(game.phase==='playing'||peers.size)broadcast({type:'state',game});},50);
+// The server loop runs every 50 ms (20 updates per second), so advance
+// simulation time by the same 50 ms on each tick. The previous 1/30 value
+// made the match run at roughly two-thirds of real time.
+setInterval(()=>{tick(0.05);if(game.phase==='playing'||peers.size)broadcast({type:'state',game});},50);
 server.listen(PORT,'0.0.0.0',()=>{
   console.log(`Tank Maze online room is running on port ${PORT}.`);
   if(process.env.RENDER_EXTERNAL_URL)console.log(`Public game link: ${process.env.RENDER_EXTERNAL_URL}`);
