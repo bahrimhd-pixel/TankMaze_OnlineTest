@@ -46,23 +46,25 @@ function emptyMatch(loadouts=['scout','scout']) {
   const world=[wall(0,0,W,22),wall(0,H-22,W,22),wall(0,0,22,H),wall(W-22,0,22,H)];
   [[245,105,145,30],[610,105,145,30],[245,565,145,30],[610,565,145,30],[420,90,34,128],[548,482,34,128],[160,280,120,30],[720,390,120,30],[500-66,350-48,132,96],[500-218,350-26,76,52],[500+142,350-26,76,52],[500-38,350-142,76,52],[500-38,350+90,76,52]].forEach(a=>world.push(add(...a,0)));world.slice(-5).forEach(o=>o.core=true);
   [[435,240,58,36,100],[510,422,58,36,100],[325,350,38,64,75],[637,315,38,64,75],[378,458,52,32,80],[570,210,52,32,80],[185,420,48,38,85],[760,255,48,38,85]].forEach(a=>world.push(add(...a)));
-  return {phase:'waiting',tanks:[tank(0,145*SCALE,550*SCALE_Y,-.55),tank(1,855*SCALE,150*SCALE_Y,2.6)],world,bullets:[],explosions:[],zoneCenters:null,pickups:[],elapsed:0,time:240,lockdown:-1,previewLockdown:-1,lockdownCountdown:0,warned:[false,false],nextSupply:18,pendingSupply:null,winner:null,rematch:[false,false],ready:[false,false],message:'Waiting for the second player'};
+  return {phase:'waiting',tanks:[tank(0,145*SCALE,550*SCALE_Y,-.55),tank(1,855*SCALE,150*SCALE_Y,2.6)],world,bullets:[],explosions:[],zoneCenters:null,zoneRadii:null,pickups:[],elapsed:0,time:240,lockdown:-1,previewLockdown:-1,lockdownCountdown:0,warned:[false,false,false],nextSupply:18,pendingSupply:null,winner:null,rematch:[false,false],ready:[false,false],message:'Waiting for the second player'};
 }
 let game=emptyMatch();
 function dist(a,b){return Math.hypot(a.x-b.x,a.y-b.y)}
 function clamp(v,a,b){return Math.max(a,Math.min(b,v))}
-function safeRect(stage=game.lockdown){const margins=[0,215*MAP_GROWTH,295*MAP_GROWTH],index=stage<0?0:stage+1,m=margins[index]??295*MAP_GROWTH,v=m*.72*(MAP_GROWTH_Y/MAP_GROWTH),c=game.zoneCenters?.[index]||{x:W/2,y:H/2},hw=W/2-22-m,hh=H/2-22-v;return {l:c.x-hw,r:c.x+hw,t:c.y-hh,b:c.y+hh}}
-function randomZoneCenters(){const sign=Math.random()<.5?-1:1,ux=530/1285,uy=1171/1285,outer=220+(Math.random()<.5?0:30),inner=outer-50;return[{x:W/2,y:H/2},{x:W/2+sign*ux*inner,y:H/2+sign*uy*inner},{x:W/2+sign*ux*outer,y:H/2+sign*uy*outer}]}
+function safeRect(stage=game.lockdown){if(stage<0)return{l:22,r:W-22,t:22,b:H-22,full:true};const index=stage+1,c=game.zoneCenters?.[index]||{x:W/2,y:H/2},radius=game.zoneRadii?.[index]||0;return{l:Math.max(22,c.x-radius),r:Math.min(W-22,c.x+radius),t:Math.max(22,c.y-radius),b:Math.min(H-22,c.y+radius),cx:c.x,cy:c.y,radius,circular:true}}
+function randomZoneCenters(){const a=Math.random()*Math.PI*2,ux=Math.cos(a),uy=Math.sin(a),base={x:W/2,y:H/2};return[base,{x:base.x+ux*180,y:base.y+uy*180},{x:base.x+ux*225,y:base.y+uy*225},{x:base.x+ux*255,y:base.y+uy*255}]}
+function circleAreaInArena(cx,cy,r){const left=22,right=W-22,top=22,bottom=H-22,steps=180,dx=(right-left)/steps;let area=0;for(let i=0;i<steps;i++){const x=left+(i+.5)*dx,q=r*r-(x-cx)*(x-cx);if(q<=0)continue;const h=Math.sqrt(q),y0=Math.max(top,cy-h),y1=Math.min(bottom,cy+h);if(y1>y0)area+=(y1-y0)*dx}return area}
+function zoneRadiiFor(centers){return[0,.8,.7,.6].map((share,i)=>{if(i===0)return 0;const c=centers[i];let lo=0,hi=Math.max(W,H)*2,target=share*(W-44)*(H-44);for(let n=0;n<36;n++){const mid=(lo+hi)/2;if(circleAreaInArena(c.x,c.y,mid)<target)lo=mid;else hi=mid}return(lo+hi)/2})}
 
-function insideRect(rect,x,y,pad=0){return x>=rect.l+pad&&x<=rect.r-pad&&y>=rect.t+pad&&y<=rect.b-pad}
+function insideRect(rect,x,y,pad=0){if(x<rect.l+pad||x>rect.r-pad||y<rect.t+pad||y>rect.b-pad)return false;if(rect.circular){const r=Math.max(0,rect.radius-pad),dx=x-rect.cx,dy=y-rect.cy;return dx*dx+dy*dy<=r*r}return true}
 function pickupRect(){return safeRect(game.previewLockdown>=0?game.previewLockdown:game.lockdown)}
-function randomSupplySpot(){const rect=pickupRect(),pad=44;for(let n=0;n<80;n++){const x=rect.l+pad+Math.random()*(rect.r-rect.l-pad*2),y=rect.t+pad+Math.random()*(rect.b-rect.t-pad*2);if(!blocked(x,y,20))return{x,y}}return{x:(rect.l+rect.r)/2,y:(rect.t+rect.b)/2}}
-function addPickup(x,y,type,life,supply=false){const rect=pickupRect(),pad=34;x=clamp(x,rect.l+pad,rect.r-pad);y=clamp(y,rect.t+pad,rect.b-pad);if(blocked(x,y,20)){const spot=randomSupplySpot();x=spot.x;y=spot.y}game.pickups.push({x,y,type,life,supply})}
+function randomSupplySpot(){const rect=pickupRect(),pad=44;for(let n=0;n<80;n++){const x=rect.l+pad+Math.random()*(rect.r-rect.l-pad*2),y=rect.t+pad+Math.random()*(rect.b-rect.t-pad*2);if(insideRect(rect,x,y,20)&&!blocked(x,y,20))return{x,y}}return{x:rect.cx??(rect.l+rect.r)/2,y:rect.cy??(rect.t+rect.b)/2}}
+function addPickup(x,y,type,life,supply=false){const rect=pickupRect(),pad=34;x=clamp(x,rect.l+pad,rect.r-pad);y=clamp(y,rect.t+pad,rect.b-pad);if(!insideRect(rect,x,y,pad)||blocked(x,y,20)){const spot=randomSupplySpot();x=spot.x;y=spot.y}game.pickups.push({x,y,type,life,supply})}
 function keepPickupsSafe(){const rect=safeRect();game.pickups=game.pickups.filter(p=>insideRect(rect,p.x,p.y,34));if(game.pendingSupply&&!insideRect(rect,game.pendingSupply.x,game.pendingSupply.y,34)){const spot=randomSupplySpot();game.pendingSupply.x=spot.x;game.pendingSupply.y=spot.y}}
 function blocked(x,y,r){return game.world.some(o=>!o.dead&&x+r>o.x&&x-r<o.x+o.w&&y+r>o.y&&y-r<o.y+o.h)}
 function move(t,dx,dy){let nx=clamp(t.x+dx,39,W-39);if(!blocked(nx,t.y,17))t.x=nx;let ny=clamp(t.y+dy,39,H-39);if(!blocked(t.x,ny,17))t.y=ny}
 function notice(message){game.message=message;game.noticeUntil=Date.now()+2600;}
-function startMatch(loadouts=game.tanks.map(t=>t.loadout)){game=emptyMatch(loadouts);game.zoneCenters=randomZoneCenters();game.phase='playing';game.message='';notice('MATCH STARTED');}
+function startMatch(loadouts=game.tanks.map(t=>t.loadout)){game=emptyMatch(loadouts);game.zoneCenters=randomZoneCenters();game.zoneRadii=zoneRadiiFor(game.zoneCenters);game.phase='playing';game.message='';notice('MATCH STARTED');}
 function endMatch(winner){game.phase='ended';game.winner=winner;game.rematch=[false,false];game.message=winner===-1?'DRAW':`PLAYER ${winner+1} WINS`;}
 function onMessage(peer, msg){
   if(msg.type==='ready'&&game.phase==='waiting'){
@@ -111,7 +113,7 @@ server.on('upgrade',(req,socket)=>{
 function tick(dt){
   if(game.phase!=='playing')return;
   game.elapsed+=dt;game.time=Math.max(0,game.time-dt);game.explosions=game.explosions.filter(e=>(e.life-=dt)>0);
-  const stageTimes=[120,180];game.previewLockdown=-1;game.lockdownCountdown=0;
+  const stageTimes=[120,180,210];game.previewLockdown=-1;game.lockdownCountdown=0;
   for(let i=0;i<stageTimes.length;i++){if(game.lockdown<i&&game.elapsed>=stageTimes[i]-10&&game.elapsed<stageTimes[i]){game.previewLockdown=i;game.lockdownCountdown=stageTimes[i]-game.elapsed;if(!game.warned[i]){game.warned[i]=true;notice(`DISTRICT ${i+1} CLOSING SOON`)}break}}
   if(game.elapsed>=120&&game.lockdown<0){game.lockdown=0;game.previewLockdown=-1;keepPickupsSafe();notice('DISTRICT 1 SEALED');}
   if(game.elapsed>=180&&game.lockdown<1){game.lockdown=1;game.previewLockdown=-1;keepPickupsSafe();notice('DISTRICT 2 SEALED');}
@@ -119,8 +121,8 @@ function tick(dt){
   for(const t of game.tanks){
     t.cooldown=Math.max(0,t.cooldown-dt);t.recoil=Math.max(0,(t.recoil||0)-dt);t.moving=false;t.boost=Math.max(0,t.boost-dt);t.armor=Math.max(0,t.armor-dt);t.invisibility=Math.max(0,t.invisibility-dt);t.radar=Math.max(0,t.radar-dt);
     if(t.reload>0){t.reload=Math.max(0,t.reload-dt);if(t.reload===0)t.ammo=t.maxAmmo;}
-    if(!t.alive){t.respawn-=dt;if(t.respawn<=0&&t.lives>0){t.alive=true;t.hp=t.loadout==='guard'?125:100;t.ammo=t.maxAmmo;t.reload=0;let p=t.id===0?{x:145*SCALE,y:550*SCALE_Y}:{x:855*SCALE,y:150*SCALE_Y};if(p.x<rect.l+25||p.x>rect.r-25||p.y<rect.t+25||p.y>rect.b-25)p={x:(rect.l+rect.r)/2+(t.id===0?-100:100),y:(rect.t+rect.b)/2+(t.id===0?66:-66)};t.x=p.x;t.y=p.y;notice(`PLAYER ${t.id+1} RESPAWNED`);}continue;}
-    if(t.x<rect.l||t.x>rect.r||t.y<rect.t||t.y>rect.b){damage(t,12*dt);if(game.phase!=='playing')return;}
+    if(!t.alive){t.respawn-=dt;if(t.respawn<=0&&t.lives>0){t.alive=true;t.hp=t.loadout==='guard'?125:100;t.ammo=t.maxAmmo;t.reload=0;let p=t.id===0?{x:145*SCALE,y:550*SCALE_Y}:{x:855*SCALE,y:150*SCALE_Y};if(!insideRect(rect,p.x,p.y,25)){const safeSpawn=randomSupplySpot();p={x:safeSpawn.x,y:safeSpawn.y};}t.x=p.x;t.y=p.y;notice(`PLAYER ${t.id+1} RESPAWNED`);}continue;}
+    if(!insideRect(rect,t.x,t.y)){damage(t,12*dt);if(game.phase!=='playing')return;}
     const i=t.input||{x:0,y:0,a:t.a,fire:false};t.a=i.a;const mag=Math.hypot(i.x,i.y);if(mag>.04){t.moving=true;t.moveA=Math.atan2(i.y,i.x);const n=Math.max(1,mag),base=t.loadout==='guard'?138:174,speed=(t.boost>0?base*1.24:base)*dt;move(t,i.x/n*speed*Math.min(1,mag),i.y/n*speed*Math.min(1,mag));}
     if(i.fire&&t.cooldown<=0&&t.reload<=0&&t.ammo>0){t.cooldown=.66;t.recoil=.18;t.invisibility=0;if(t.armorPrimed){t.armorPrimed=false;t.armor=10;notice(`PLAYER ${t.id+1} DOUBLE ARMOR ACTIVATED`);}const powered=t.damageShots>0;t.ammo--;const speed=430;game.bullets.push({x:t.x+Math.cos(t.a)*24,y:t.y+Math.sin(t.a)*24,vx:Math.cos(t.a)*speed,vy:Math.sin(t.a)*speed,team:t.id,life:1.8,damage:powered?32:16});if(powered)t.damageShots--;if(t.ammo===0)t.reload=RELOAD_TIME;}
   }
