@@ -22,7 +22,7 @@ function frame(data) {
   return Buffer.concat([head, body]);
 }
 function send(peer, data) { if (peer && !peer.closed) peer.socket.write(frame(data)); }
-function broadcast(data) { if(data?.type==='state'&&data.game?.phase==='playing'){for(const peer of peers){const view=JSON.parse(JSON.stringify(data.game)),own=view.tanks[peer.slot],rival=view.tanks[1-peer.slot],range=292,near=dist(own,rival);rival.visible=(own.radar>0||near<range)&&(rival.invisibility<=0||own.radar>0||near<95);if(!rival.visible){rival.x=-10000;rival.y=-10000;}const visibleAt=(p)=>own.radar>0||dist(own,p)<range;view.pickups=view.pickups.filter(visibleAt);if(view.pendingSupply&&!visibleAt(view.pendingSupply))view.pendingSupply=null;view.bullets=view.bullets.filter(b=>b.team===own.id||visibleAt(b));send(peer,{...data,game:view});}return;}for (const peer of peers) send(peer, data); }
+function broadcast(data) { if(data?.type==='state'&&data.game?.phase==='playing'){for(const peer of peers){const view=JSON.parse(JSON.stringify(data.game)),own=view.tanks[peer.slot],rival=view.tanks[1-peer.slot],range=584,near=dist(own,rival);rival.visible=(own.radar>0||near<range)&&(rival.invisibility<=0||own.radar>0||near<95);if(!rival.visible){rival.x=-10000;rival.y=-10000;}const visibleAt=(p)=>own.radar>0||dist(own,p)<range;view.pickups=view.pickups.filter(visibleAt);if(view.pendingSupply&&!visibleAt(view.pendingSupply))view.pendingSupply=null;view.bullets=view.bullets.filter(b=>b.team===own.id||visibleAt(b));send(peer,{...data,game:view});}return;}for (const peer of peers) send(peer, data); }
 function readFrames(peer, chunk) {
   peer.buffer = Buffer.concat([peer.buffer, chunk]);
   while (peer.buffer.length >= 2) {
