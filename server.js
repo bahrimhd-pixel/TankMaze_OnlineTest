@@ -46,12 +46,17 @@ function emptyMatch(loadouts=['scout','scout']) {
   const world=[wall(0,0,W,22),wall(0,H-22,W,22),wall(0,0,22,H),wall(W-22,0,22,H)];
   [[245,105,145,30],[610,105,145,30],[245,565,145,30],[610,565,145,30],[420,90,34,128],[548,482,34,128],[160,280,120,30],[720,390,120,30]].forEach(a=>world.push(add(...a,0)));
   [[435,240,58,36,100],[510,422,58,36,100],[325,350,38,64,75],[637,315,38,64,75],[378,458,52,32,80],[570,210,52,32,80],[185,420,48,38,85],[760,255,48,38,85]].forEach(a=>world.push(add(...a)));
-  return {phase:'waiting',tanks:[tank(0,145*SCALE,550*SCALE_Y,-.55),tank(1,855*SCALE,150*SCALE_Y,2.6)],world,bullets:[],pickups:[],elapsed:0,time:240,lockdown:-1,warned:[false,false],nextSupply:18,pendingSupply:null,winner:null,rematch:[false,false],ready:[false,false],message:'Waiting for the second player'};
+  return {phase:'waiting',tanks:[tank(0,145*SCALE,550*SCALE_Y,-.55),tank(1,855*SCALE,150*SCALE_Y,2.6)],world,bullets:[],pickups:[],elapsed:0,time:240,lockdown:-1,previewLockdown:-1,lockdownCountdown:0,warned:[false,false],nextSupply:18,pendingSupply:null,winner:null,rematch:[false,false],ready:[false,false],message:'Waiting for the second player'};
 }
 let game=emptyMatch();
 function dist(a,b){return Math.hypot(a.x-b.x,a.y-b.y)}
 function clamp(v,a,b){return Math.max(a,Math.min(b,v))}
-function safeRect(){const margins=[0,215*MAP_GROWTH,295*MAP_GROWTH],m=margins[game.lockdown+1]??295*MAP_GROWTH,v=m*.72*(MAP_GROWTH_Y/MAP_GROWTH);return {l:22+m,r:W-22-m,t:22+v,b:H-22-v}}
+function safeRect(stage=game.lockdown){const margins=[0,215*MAP_GROWTH,295*MAP_GROWTH],m=margins[stage+1]??295*MAP_GROWTH,v=m*.72*(MAP_GROWTH_Y/MAP_GROWTH);return {l:22+m,r:W-22-m,t:22+v,b:H-22-v}}
+function insideRect(rect,x,y,pad=0){return x>=rect.l+pad&&x<=rect.r-pad&&y>=rect.t+pad&&y<=rect.b-pad}
+function pickupRect(){return safeRect(game.previewLockdown>=0?game.previewLockdown:game.lockdown)}
+function randomSupplySpot(){const rect=pickupRect(),pad=44;for(let n=0;n<80;n++){const x=rect.l+pad+Math.random()*(rect.r-rect.l-pad*2),y=rect.t+pad+Math.random()*(rect.b-rect.t-pad*2);if(!blocked(x,y,20))return{x,y}}return{x:(rect.l+rect.r)/2,y:(rect.t+rect.b)/2}}
+function addPickup(x,y,type,life,supply=false){const rect=pickupRect(),pad=34;x=clamp(x,rect.l+pad,rect.r-pad);y=clamp(y,rect.t+pad,rect.b-pad);if(blocked(x,y,20)){const spot=randomSupplySpot();x=spot.x;y=spot.y}game.pickups.push({x,y,type,life,supply})}
+function keepPickupsSafe(){const rect=safeRect();game.pickups=game.pickups.filter(p=>insideRect(rect,p.x,p.y,34));if(game.pendingSupply&&!insideRect(rect,game.pendingSupply.x,game.pendingSupply.y,34)){const spot=randomSupplySpot();game.pendingSupply.x=spot.x;game.pendingSupply.y=spot.y}}
 function blocked(x,y,r){return game.world.some(o=>!o.dead&&x+r>o.x&&x-r<o.x+o.w&&y+r>o.y&&y-r<o.y+o.h)}
 function move(t,dx,dy){let nx=clamp(t.x+dx,39,W-39);if(!blocked(nx,t.y,17))t.x=nx;let ny=clamp(t.y+dy,39,H-39);if(!blocked(t.x,ny,17))t.y=ny}
 function notice(message){game.message=message;game.noticeUntil=Date.now()+2600;}
@@ -103,9 +108,10 @@ server.on('upgrade',(req,socket)=>{
 function tick(dt){
   if(game.phase!=='playing')return;
   game.elapsed+=dt;game.time=Math.max(0,game.time-dt);
-  for(let i=0;i<2;i++){const stageAt=[120,180][i];if(!game.warned[i]&&game.elapsed>=stageAt-7){game.warned[i]=true;notice('LOCKDOWN WARNING');}}
-  if(game.elapsed>=120&&game.lockdown<0){game.lockdown=0;notice('DISTRICT 1 SEALED');}
-  if(game.elapsed>=180&&game.lockdown<1){game.lockdown=1;notice('DISTRICT 2 SEALED');}
+  const stageTimes=[120,180];game.previewLockdown=-1;game.lockdownCountdown=0;
+  for(let i=0;i<stageTimes.length;i++){if(game.lockdown<i&&game.elapsed>=stageTimes[i]-10&&game.elapsed<stageTimes[i]){game.previewLockdown=i;game.lockdownCountdown=stageTimes[i]-game.elapsed;if(!game.warned[i]){game.warned[i]=true;notice(`DISTRICT ${i+1} CLOSING SOON`)}break}}
+  if(game.elapsed>=120&&game.lockdown<0){game.lockdown=0;game.previewLockdown=-1;keepPickupsSafe();notice('DISTRICT 1 SEALED');}
+  if(game.elapsed>=180&&game.lockdown<1){game.lockdown=1;game.previewLockdown=-1;keepPickupsSafe();notice('DISTRICT 2 SEALED');}
   const rect=safeRect();
   for(const t of game.tanks){
     t.cooldown=Math.max(0,t.cooldown-dt);t.boost=Math.max(0,t.boost-dt);t.armor=Math.max(0,t.armor-dt);t.doubleDamage=Math.max(0,t.doubleDamage-dt);t.illusion=Math.max(0,t.illusion-dt);
@@ -116,10 +122,10 @@ function tick(dt){
     if(i.fire&&t.cooldown<=0&&t.reload<=0&&t.ammo>0){t.cooldown=.66;t.ammo--;const speed=430;game.bullets.push({x:t.x+Math.cos(t.a)*24,y:t.y+Math.sin(t.a)*24,vx:Math.cos(t.a)*speed,vy:Math.sin(t.a)*speed,team:t.id,life:1.8,damage:t.doubleDamage>0?32:16});if(t.ammo===0)t.reload=RELOAD_TIME;}
   }
   game.nextSupply-=dt;
-  if(!game.pendingSupply&&game.nextSupply<=0){const spots=[{x:500*SCALE,y:145*SCALE_Y},{x:205*SCALE,y:350*SCALE_Y},{x:795*SCALE,y:350*SCALE_Y},{x:500*SCALE,y:545*SCALE_Y}];const s=spots[Math.floor(Math.random()*spots.length)];game.pendingSupply={x:s.x,y:s.y,timer:5};notice('FIELD SUPPLY INCOMING');}
-  if(game.pendingSupply){game.pendingSupply.timer-=dt;if(game.pendingSupply.timer<=0){game.pickups.push({x:game.pendingSupply.x,y:game.pendingSupply.y,type:randomPickupType(),life:22,supply:true});game.pendingSupply=null;game.nextSupply=26;notice('FIELD SUPPLY ARRIVED');}}
+  if(!game.pendingSupply&&game.nextSupply<=0){const s=randomSupplySpot();game.pendingSupply={x:s.x,y:s.y,timer:5};notice('FIELD SUPPLY INCOMING');}
+  if(game.pendingSupply){game.pendingSupply.timer-=dt;if(game.pendingSupply.timer<=0){addPickup(game.pendingSupply.x,game.pendingSupply.y,randomPickupType(),22,true);game.pendingSupply=null;game.nextSupply=26;notice('FIELD SUPPLY ARRIVED');}}
   for(let i=game.bullets.length-1;i>=0;i--){const b=game.bullets[i];b.x+=b.vx*dt;b.y+=b.vy*dt;b.life-=dt;let remove=b.life<=0||b.x<20||b.x>W-20||b.y<20||b.y>H-20;
-    for(const o of game.world){if(!remove&&!o.dead&&b.x>o.x&&b.x<o.x+o.w&&b.y>o.y&&b.y<o.y+o.h){if(o.hp>0){o.hp-=b.damage;if(o.hp<=0){o.dead=true;if(Math.random()<.62)game.pickups.push({x:o.x+o.w/2,y:o.y+o.h/2,type:randomPickupType(),life:18});}}remove=true;break;}}
+    for(const o of game.world){if(!remove&&!o.dead&&b.x>o.x&&b.x<o.x+o.w&&b.y>o.y&&b.y<o.y+o.h){if(o.hp>0){o.hp-=b.damage;if(o.hp<=0){o.dead=true;if(Math.random()<.62)addPickup(o.x+o.w/2,o.y+o.h/2,randomPickupType(),18);}}remove=true;break;}}
     for(const t of game.tanks){if(!remove&&t.id!==b.team&&t.alive&&Math.hypot(b.x-t.x,b.y-t.y)<19){damage(t,b.damage);remove=true;}}
     if(remove)game.bullets.splice(i,1);
   }
@@ -127,7 +133,7 @@ function tick(dt){
   if(game.time<=0){const [a,b]=game.tanks;endMatch(a.lives===b.lives?(a.hp===b.hp?-1:a.hp>b.hp?0:1):a.lives>b.lives?0:1);}
 }
 function randomPickupType(){const roll=Math.random();return roll<.28?'repair':roll<.48?'armor':roll<.68?'boost':roll<.84?'double':'illusion';}
-function damage(t,amount){if(!t.alive)return;const taken=t.armor>0?amount*.5:amount;t.hp-=taken;if(t.hp<=0){t.lives--;t.alive=false;t.respawn=10;t.hp=t.loadout==='guard'?125:100;t.ammo=t.maxAmmo;t.reload=0;if(Math.random()<.62)game.pickups.push({x:t.x,y:t.y,type:randomPickupType(),life:18});if(t.lives<=0)endMatch(1-t.id);}}
+function damage(t,amount){if(!t.alive)return;const taken=t.armor>0?amount*.5:amount;t.hp-=taken;if(t.hp<=0){t.lives--;t.alive=false;t.respawn=10;t.hp=t.loadout==='guard'?125:100;t.ammo=t.maxAmmo;t.reload=0;if(Math.random()<.62)addPickup(t.x,t.y,randomPickupType(),18);if(t.lives<=0)endMatch(1-t.id);}}
 // The server loop runs every 50 ms (20 updates per second), so advance
 // simulation time by the same 50 ms on each tick. The previous 1/30 value
 // made the match run at roughly two-thirds of real time.
